@@ -12,5 +12,4 @@
 
 Для возведения в степень не обязательно использовать символ '^' ('x^2y' = 'x2y').
 
-Запустить программу можно либо с помощью [исполняемого (.exe) файла](
-https://drive.google.com/drive/folders/1YyHm_0WH0CzrIopPiNQkvEMnOutsmC4F?usp=sharing), либо с помощью самого кода.
+Запустить программу можно либо с помощью [исполняемого (.exe) файла](https://drive.google.com/drive/u/0/folders/1YyHm_0WH0CzrIopPiNQkvEMnOutsmC4F), либо с помощью самого кода.
