@@ -1,7 +1,8 @@
 from PyQt5 import QtWidgets
 import sys
 import interface
-# import time
+import random
+import time
 
 
 class Interface(QtWidgets.QMainWindow, interface.Ui_MainWindow):
@@ -83,6 +84,8 @@ class Interface(QtWidgets.QMainWindow, interface.Ui_MainWindow):
         if multi_polynomial.polynomials is None:
             self.textEdit_multi_pol.setStyleSheet("color: rgb(255, 0, 0)")
             ok = 0
+        else:
+            self.textEdit_multi_pol.setStyleSheet("color: rgb(0, 0, 0)")
         if self.old_multi_pol_list is None or self.old_multi_pol_list != multi_pol_list:
             self.old_multi_pol_list = multi_pol_list
             changed = True
@@ -90,47 +93,56 @@ class Interface(QtWidgets.QMainWindow, interface.Ui_MainWindow):
         pol_str = self.lineEdit_pol.text()
         polynomial = Polynomial(pol_str)
         if polynomial.monomials is None:
-            self.lineEdit_pol.setStyleSheet("color: rgb(255, 0, 0);")
-            ok = 0
+            if pol_str == '':
+                ok = 2
+            else:
+                self.lineEdit_pol.setStyleSheet("color: rgb(255, 0, 0);")
+                ok = 0
+        else:
+            self.lineEdit_pol.setStyleSheet("color: rgb(0, 0, 0);")
 
         if ok != 0:
             if changed:
-                self.gr_basis = multi_polynomial.grobner_basis_fast()
+                self.gr_basis, basis_found = multi_polynomial.grobner_basis_fast()
                 self.gr_basis.reducing()
                 self.textBrowser_basis.clear()
                 self.textBrowser_basis.append(self.gr_basis.html_str())
+                if not basis_found:
+                    self.textBrowser_basis.append('Базис не полный, было сделано 1000 итераций')
             self.textBrowser_answer.clear()
-            if self.an_needed:
-                an, r = self.gr_basis.divide(polynomial, True)
-                answer = '<sup></sup>'
-                answer += polynomial.html_str() + ' = '
-                for i in range(an.n):
-                    if i != 0:
-                        if len(an[i].monomials) == 1 and an[i].monomials[0].coefficient.a < 0:
-                            answer += ' -<br>  '
+            if ok == 1:
+                if self.an_needed:
+                    an, r = self.gr_basis.divide(polynomial, True)
+                    answer = '<sup></sup>'
+                    answer += polynomial.html_str() + ' = '
+                    for i in range(an.n):
+                        if i != 0:
+                            if len(an[i].monomials) == 1 and an[i].monomials[0].coefficient.a < 0:
+                                answer += ' -<br>  '
+                            else:
+                                answer += ' +<br>  + '
+
+                        if len(an[i].monomials) > 1 or\
+                                (len(an[i].monomials) == 1 and an[i].monomials[0].coefficient.a < 0):
+                            answer += '(' + an[i].html_str() + ') ∙ '
                         else:
-                            answer += ' +<br>  + '
+                            answer += an[i].html_str() + ' ∙ '
 
-                    if len(an[i].monomials) > 1 or\
-                            (len(an[i].monomials) == 1 and an[i].monomials[0].coefficient.a < 0):
-                        answer += '(' + an[i].html_str() + ') * '
+                        if len(self.gr_basis[i].monomials) > 1 or\
+                                (len(self.gr_basis[i].monomials) == 1 and
+                                 self.gr_basis[i].monomials[0].coefficient.a < 0):
+                            answer += '(' + self.gr_basis[i].html_str() + ')'
+                        else:
+                            answer += self.gr_basis[i].html_str()
+                    if len(r.monomials) == 1 and r.monomials[0].coefficient.a < 0:
+                        answer += ' -<br>  '
                     else:
-                        answer += an[i].html_str() + ' * '
-
-                    if len(self.gr_basis[i].monomials) > 1 or\
-                            (len(self.gr_basis[i].monomials) == 1 and self.gr_basis[i].monomials[0].coefficient.a < 0):
-                        answer += '(' + self.gr_basis[i].html_str() + ')'
-                    else:
-                        answer += self.gr_basis[i].html_str()
-                if len(r.monomials) == 1 and r.monomials[0].coefficient.a < 0:
-                    answer += ' -<br>  '
+                        answer += ' +<br>  + '
+                    answer += r.html_str() + '<br>'
+                    self.textBrowser_answer.append(answer)
                 else:
-                    answer += ' +<br>  + '
-                answer += r.html_str() + '<br>'
-                self.textBrowser_answer.append(answer)
-            else:
-                _, r = self.gr_basis.divide(polynomial, False)
-            self.textBrowser_answer.append(str(r == Rational(0)))
+                    _, r = self.gr_basis.divide(polynomial, False)
+                self.textBrowser_answer.append(str(r == Rational(0)))
 
     def multi_pol_changed(self):
         self.textEdit_multi_pol.setStyleSheet("color: rgb(0, 0, 0)")
@@ -232,8 +244,8 @@ class Rational:
 
 class Monomial:
     """
-    Это класс мономов, в нем будут следующие параметры:
-        self.coefficient - единственное целое число, коэффициент монома
+    Это класс мономов, в нем будут следующие отрибуты:
+        self.coefficient - единственное рациональное число, коэффициент монома
         self.degrees - список степеней переменных
     """
 
@@ -406,7 +418,6 @@ class Monomial:
 class Polynomial:
     """
     Это класс полиномов, в нем хранятся мономы
-    Для этого класса перегружены арифметические операторы
     """
 
     def __init__(self, pol_str: str):
@@ -629,13 +640,16 @@ class Multi_polynomial:
         b это словарь, где ключом является 'i_j',а значением - список из 2 элеменов:
           1) LCM(LT(f_i), LT(f_j))
           2) [i_1, j_1]
-        тут i_1, j_1 такые, что LCM(LT(f_i), LT(f_j)) <= LCM(LT(f_i_1), LT(f_j_1))
+        тут i_1, j_1 такие, что LCM(LT(f_i), LT(f_j)) <= LCM(LT(f_i_1), LT(f_j_1))
         это нужно для того, чтобы добавить очередную пару и сохранить сортировку
         При добавлении пар мы уже проверяем условые LCM(LT(f_i), LT(f_j)) != LT(f_i) * LT(f_j)
         """
         after_item = gn.b['-1'][1]
+        iter_count = 0
         while after_item != '-2':
-
+            iter_count += 1
+            if iter_count == 1000:
+                return gn, False
             i_, j_ = after_item.split('_')
             i, j = int(i_), int(j_)
 
@@ -653,7 +667,7 @@ class Multi_polynomial:
             else:
                 gn.b['-1'][1] = gn.b.pop(after_item)[1]
             after_item = gn.b['-1'][1]
-        return gn
+        return gn, True
 
     # добавляем пару item в список B
     def add_item(self, item: str, lcm_item):
@@ -716,7 +730,8 @@ class Multi_polynomial:
 
     # принадлежание идеалу
     def ideal_membership(self, f: Polynomial):
-        gn = self.grobner_basis_fast()
+        gn, basis_found = self.grobner_basis_fast()
+        gn.reducing()
         _, r = gn.divide(f, False)
         return r == Rational(0)
 
@@ -775,9 +790,75 @@ def lcm(a: Monomial, b: Monomial):
     return ans
 
 
-def set_order_type(key):
-    global order_type
-    order_type = key
+def test(var_str, max_degree, max_count_of_mon, count_of_pol, tests):
+    global order_type, variables
+    variables = variables_to_list(var_str)
+    time_basis = [0.0, 0.0, 0.0]
+    max_time_basis = [None, None, None]
+    time_reducing = [0.0, 0.0, 0.0]
+    error_count = [0, 0, 0]
+    max_iter_count = [0, 0, 0]
+
+    for test_num in range(1, tests+1):
+        """Сгенерируем множество count_of_pol полиномов,
+        внутри каждого из них максимум max_count_of_mon мономов с макимальным степеном max_degree"""
+        multi_pol = Multi_polynomial(['0']*count_of_pol)
+        for pol in multi_pol.polynomials:
+            pol.monomials.clear()
+            for i in range(random.randint(1, max_count_of_mon)):
+                pol.monomials.append(mon_gen(max_degree))
+
+        for i, order_type in enumerate(['lex', 'grlex', 'grevlex']):
+            multi_pol.simplify()
+            time_0 = time.time()
+            gr_basis, basis_found = multi_pol.grobner_basis_fast()
+            time_1 = time.time()
+
+            if basis_found:
+                gr_basis.reducing()
+                time_2 = time.time()
+                ok = True
+                for elem in multi_pol.polynomials:
+                    _, r = gr_basis.divide(elem, False)
+                    if r != Rational(0):
+                        ok = False
+                        break
+                if ok:
+                    print('Тест', test_num, '- OK')
+                    time_basis[i] += time_1 - time_0
+                    time_reducing[i] += time_2 - time_1
+                    max_time_basis[i] = max(max_time_basis[i], time_1 - time_0) if max_time_basis[i] is not None\
+                        else time_1 - time_0
+                else:
+                    print('Тест', test_num, '- Ошибка', order_type)
+                    print(multi_pol, '\n')
+                    error_count[i] += 1
+            else:
+                print('Тест', test_num, '- Сделано 1000 итераций', order_type)
+                print(multi_pol, '\n')
+                max_iter_count[i] += 1
+
+    print('\nБыло сделано', tests, 'тестов')
+    print('Список переменных -', *variables)
+    print('Максимальный степень =', max_degree)
+    print('Максимальное количество мономов =', max_count_of_mon)
+    print('Количество полиномов =', count_of_pol)
+    print('Упорядочение -', ['lex', 'grlex', 'grevlex'])
+    print('Среднее время нахождения базисов =', [time_basis[i] / (tests - error_count[i] - max_iter_count[i])
+                                                 for i in range(3)])
+    print('Среднее время редуцирования =', [time_reducing[i] / (tests - error_count[i] - max_iter_count[i])
+                                            for i in range(3)])
+    print('Максимальное время нахождения базисов =', max_time_basis)
+    print('Выявлено', error_count, 'ошибок')
+    print(max_iter_count, 'раз было сделано макимальное количество итераций(1000)')
+
+
+def mon_gen(max_degree):
+    ans = Monomial('1')
+    ans.coefficient = Rational(random.randint(1, 10) * random.choice([1, -1]))
+    for i in range(len(variables)):
+        ans.degrees[i] = random.randint(0, max_degree)
+    return ans
 
 
 """
@@ -785,7 +866,8 @@ variables - список переменных в правильном поряд
 order_type - тип упорядочения мономов('lex', 'grlex', 'grevlex')
 """
 variables = variables_to_list('x y z w')
-order_type = 'lex'
+order_type = 'grevlex'
+# interface = False
 interface = True
 
 if interface:
@@ -793,15 +875,19 @@ if interface:
     window = Interface()
     sys.exit(app.exec_())
 else:
-    f_1 = Polynomial('x')
+    """f_1 = Polynomial('x')
     my_list = [['x^3-2xy', 'x^2y-2y^2+x'],
                ['3x-6y-2z', '2x-4y+4w', 'x-2y-z-w'],
-               ['x^5+y^4+z^3-1', 'x^3+y^2+z^2-1']]
-    number = 0
-    my_multi_polynomial = Multi_polynomial(my_list[number])
-    basis = my_multi_polynomial.grobner_basis_fast()
+               ['x^5+y^4+z^3-1', 'x^3+y^2+z^2-1'],
+               ['4x^2yz^2+4w^2', '-7x^2y-7y^2-9y', '-3x^2w-9xy^2z-2x'],
+               ['-x^2y^2z^2w^2-10x^2yw-10xz', '-6x^2yw-3yz^2w', '-10x^2y^2z^2w^2+9yzw^2']]
+    my_multi_polynomial = Multi_polynomial(my_list[3])
+    print(my_multi_polynomial)
+    basis, basis_found_ = my_multi_polynomial.grobner_basis_fast()
     basis.reducing()
+    print(basis_found_)
     print(basis)
     for elem_ in my_multi_polynomial.polynomials:
         _, r_ = basis.divide(elem_, False)
-        print(r_)
+        print(r_)"""
+    test('x y z w p', 5, 3, 3, 50)
